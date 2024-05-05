@@ -1,6 +1,33 @@
-Screen {
-    background: $surface-darken-1;
-    &:inline {
-        height: 50vh;
-    }
+ModalScreen {
+    align: center middle;
+}
+
+Grid {
+    align: center middle;
+    width: 60%;
+    height: 10%;
+    border: thick $background 80%;
+    background: $surface;
+}
+
+Label {
+    height: 1fr;
+    width: 1fr;
+    content-align: center middle;
+}
+
+#session-info {
+    width: 100%;
+    grid-size: 2 1;
+    grid-rows: 1fr;
+    grid-columns: 1fr;
+    grid-gutter: 1;
+}
+
+.session-item {
+    background: #333;
+}
+
+#error-message {
+    background: #522;
 }
