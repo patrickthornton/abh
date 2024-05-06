@@ -7,7 +7,6 @@ Run with:
 """
 
 from rich.syntax import Syntax
-from textual import log
 from textual.app import App, ComposeResult
 from textual.containers import Grid
 from textual.reactive import reactive
@@ -22,8 +21,9 @@ import os
 import re
 
 from sessioninfo import SessionInfo
-from prompts import TargetPrompt, BreakpointPrompt, ExaminePrompt
+from prompts import TargetPrompt, BreakpointPrompt
 from notifs import ErrorNotif, SymbolNotif, WarningMotif
+from inspector import Inspector
 
 
 class AmericanBunnyHop(App):
@@ -33,12 +33,13 @@ class AmericanBunnyHop(App):
     BINDINGS = [
         ("t", "target", "target"),
         ("s", "symbols", "symbols"),
-        ("b", "breakpoint", "breakpoint"),
+        ("b", "breakpoint", "breaks"),
         ("r", "run", "run"),
         ("c", "continue", "continue"),
-        ("o", "step", "step over"),
-        ("i", "next", "step into"),
+        ("o", "next", "step over"),
+        ("i", "step", "step into"),
         ("x", "examine", "examine"),
+        ("d", "deref", "deref"),
         ("q", "clean_quit", "quit"),
     ]
 
@@ -88,7 +89,7 @@ class AmericanBunnyHop(App):
                 ),
                 id="regs",
             ),
-            RichLog(id="inspector", classes="scroller", auto_scroll=False),
+            Inspector(regs=self.previous_regs),
             RichLog(id="asm", classes="scroller", auto_scroll=False),
             id="body",
         )
@@ -99,10 +100,10 @@ class AmericanBunnyHop(App):
         self.dbg.SetAsync(False)
         self.mounted = True
 
-        # SCRAP THESE LINES LATER
-        target = self.dbg.CreateTarget("test/hello")
-        self.target = target
-        self.filename = target.GetExecutable().GetFilename()
+        # for testing only
+        # target = self.dbg.CreateTarget("test/hello")
+        # self.target = target
+        # self.filename = target.GetExecutable().GetFilename()
 
     def action_target(self) -> None:
         """Set the target."""
@@ -159,13 +160,11 @@ class AmericanBunnyHop(App):
                 return
 
             # check for duplicates
-            log(breakpoint_names)
             if path in breakpoint_names:
                 self.error("breakpoint already set!")
                 return
 
             breakpoint = self.target.BreakpointCreateByName(path, self.filename)
-            log(breakpoint)
             if not breakpoint:
                 self.error("couldn't set breakpoint!")
                 return
@@ -232,34 +231,13 @@ class AmericanBunnyHop(App):
         self.disas()
 
     def action_examine(self) -> None:
-        """Examine a memory address."""
+        self.query_one(Inspector).input_focus()
 
-        def examine(address: str) -> None:
-            # handle escape
-            if address == "\n":
-                return
-
-            if not self.process:
-                self.error("no process running!")
-                return
-
-            inspector = self.query_one("#inspector", RichLog)
-
-            error = lldb.SBError()
-            addr = int(address, 16)
-            data = self.process.ReadMemory(addr, 16, error)
-            if error.Fail():
-                self.error("couldn't read memory!")
-                return
-
-            hexdump = Syntax(
-                data.hex(), "ecl", line_numbers=True, background_color="#1e1e1e"
-            )
-
-            inspector.clear()
-            inspector.write(hexdump)
-
-        self.push_screen(ExaminePrompt(), examine)
+    def action_deref(self) -> None:
+        if not self.process:
+            self.error("no process running!")
+            return
+        self.query_one(Inspector).deref_toggle()
 
     def action_clean_quit(self) -> None:
         if self.process:
@@ -347,6 +325,9 @@ class AmericanBunnyHop(App):
             else:
                 richlog.write(f"[magenta]%[/]{reg.name: <6}: [blue]{reg.value}[/]")
             self.previous_regs[reg.name] = reg.value
+
+        # give inspector up-to-date regs
+        self.query_one(Inspector).update(self.process, self.previous_regs)
 
     def update_session_info(self) -> None:
         self.query_one(SessionInfo).update(self.target, self.process, self.thread)

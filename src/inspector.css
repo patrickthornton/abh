@@ -1,0 +1,11 @@
+#inspector {
+    grid-size: 1 1;
+    background: $warning;
+}
+
+#type-spray {
+    width: 100%;
+    height: 100%;
+    grid-size: 3 3;
+    grid-rows: 1fr 1fr 1fr;
+}
