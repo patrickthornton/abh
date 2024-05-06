@@ -1,63 +1,111 @@
 """
-Textual Terminal example.
+american bunny hop; a tui wrapper for lldb.
 
 Run with:
 
-    python abh.py PATH
+    python abh.py
 """
 
-import sys
-
 from rich.syntax import Syntax
-from rich.traceback import Traceback
-from textual import on, log, work
+from textual import log
 from textual.app import App, ComposeResult
-from textual.containers import Container, Grid
-from textual.events import Key
-from textual.message import Message
-from textual.reactive import reactive, var
-from textual.screen import ModalScreen
-from textual.widget import Widget
-from textual.widgets import DirectoryTree, Footer, Header, Input, Static, Label, Button, RichLog
-from textual.validation import Function, Number, ValidationResult, Validator
+from textual.containers import Grid
+from textual.reactive import reactive
+from textual.widgets import (
+    Footer,
+    Header,
+    RichLog,
+)
 
 import lldb
 import os
+import re
 
-class OurDebugger(App):
-    """Textual code browser app."""
+from sessioninfo import SessionInfo
+from prompts import TargetPrompt, BreakpointPrompt, ExaminePrompt
+from error import ErrorScreen
+
+
+class AmericanBunnyHop(App):
+    """american bunny hop."""
 
     CSS_PATH = "abh.css"
     BINDINGS = [
         ("t", "target", "target"),
+        ("b", "breakpoint", "breakpoint"),
         ("r", "run", "run"),
         ("c", "continue", "continue"),
-        ("b", "breakpoint", "breakpoint"),
         ("s", "step", "step"),
         ("n", "next", "next"),
-        ("q", "quit", "quit"),
+        ("x", "examine", "examine"),
+        ("q", "clean_quit", "quit"),
     ]
 
     dbg: reactive[lldb.SBDebugger] = reactive(lldb.SBDebugger.Create())
     filename: reactive[str] = reactive("")
     target: reactive[lldb.SBTarget] = reactive(lldb.SBTarget())
     process: reactive[lldb.SBProcess] = reactive(lldb.SBProcess())
+    thread: reactive[lldb.SBThread] = reactive(lldb.SBThread())
+    mounted: bool = False
+    regex = re.compile(r"\[[0-9]+m")
+    previous_regs = {}
 
     def compose(self) -> ComposeResult:
         """Compose our UI."""
         yield Header()
-        with Container():
-            yield SessionInfo().data_bind(OurDebugger.dbg, OurDebugger.filename, OurDebugger.target, OurDebugger.process)
+        yield Grid(
+            SessionInfo().data_bind(
+                AmericanBunnyHop.filename,
+                AmericanBunnyHop.target,
+                AmericanBunnyHop.process,
+                AmericanBunnyHop.thread,
+            ),
+            Grid(
+                RichLog(
+                    id="regs64",
+                    auto_scroll=False,
+                    markup=True,
+                    classes="regs_item scroller",
+                ),
+                RichLog(
+                    id="regs32",
+                    auto_scroll=False,
+                    markup=True,
+                    classes="regs_item scroller",
+                ),
+                RichLog(
+                    id="regs16",
+                    auto_scroll=False,
+                    markup=True,
+                    classes="regs_item scroller",
+                ),
+                RichLog(
+                    id="regs8",
+                    auto_scroll=False,
+                    markup=True,
+                    classes="regs_item scroller",
+                ),
+                id="regs",
+            ),
+            RichLog(id="inspector", classes="scroller", auto_scroll=False),
+            RichLog(id="asm", classes="scroller", auto_scroll=False),
+            id="body",
+        )
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = "Our Debugger!! <3"
+        self.title = "american bunny hop"
         self.dbg.SetAsync(False)
+        self.mounted = True
 
     def action_target(self) -> None:
         """Set the target."""
 
         def set_target(path: str) -> None:
+            # handle escape
+            if path == "\n":
+                return
+
             target = self.dbg.CreateTarget(path)
             if not target:
                 self.error("couldn't find executable with that name!")
@@ -67,6 +115,27 @@ class OurDebugger(App):
             self.filename = target.GetExecutable().GetFilename()
 
         self.push_screen(TargetPrompt(), set_target)
+
+    def action_breakpoint(self) -> None:
+        """Set a breakpoint."""
+
+        def set_breakpoint(path: str) -> None:
+            # handle escape
+            if path == "\n":
+                return
+
+            if not self.target:
+                self.error("no target set!")
+                return
+
+            breakpoint = self.target.BreakpointCreateByName(path, self.filename)
+            log(breakpoint)
+            if not breakpoint:
+                self.error("couldn't set breakpoint!")
+                return
+
+        breakpoints = list(self.target.breakpoint_iter())
+        self.push_screen(BreakpointPrompt(breakpoints), set_breakpoint)
 
     def action_run(self) -> None:
         """Run the target."""
@@ -81,28 +150,22 @@ class OurDebugger(App):
             return
 
         self.process = process
-
-
-    def action_breakpoint(self) -> None:
-        """Set a breakpoint."""
-
-        def set_breakpoint(path: str) -> None:
-            if self.target:
-                breakpoint = self.target.BreakpointCreateByName(path, self.filename)
-                if breakpoint:
-                    log(breakpoint)
-                    return
-            log("no breakpoint set")
-
-        self.push_screen(BreakpointPrompt(), set_breakpoint)
+        self.thread = process.GetSelectedThread()
+        self.disas()
 
     def action_continue(self) -> None:
         """Continue stepping until the next breakpoint."""
 
-        if self.process:
-            process = self.process.Continue()
-            if process:
-                log(self.process)
+        if not self.process:
+            self.error("no process running!")
+            return
+
+        process = self.process.Continue()
+        if not process:
+            self.error("couldn't continue process!")
+            return
+
+        self.disas()
 
     def action_step(self) -> None:
         """Step one instruction, stepping into function calls."""
@@ -116,99 +179,142 @@ class OurDebugger(App):
         """Continue onto the next line, stepping over"""
 
         if not self.process:
+            self.error("no process running!")
+            return
+        if not self.process.GetState() == lldb.eStateStopped:
+            self.error("process not stopped!")
+            return
+        if not self.thread:
+            self.error("no thread selected!")
+            return
+
+        self.thread.StepInstruction(step_over)
+        self.disas()
+
+    def action_examine(self) -> None:
+        """Examine a memory address."""
+
+        def examine(address: str) -> None:
+            # handle escape
+            if address == "\n":
+                return
+
+            if not self.process:
+                self.error("no process running!")
+                return
+
+            inspector = self.query_one("#inspector", RichLog)
+
+            error = lldb.SBError()
+            addr = int(address, 16)
+            data = self.process.ReadMemory(addr, 16, error)
+            if error.Fail():
+                self.error("couldn't read memory!")
+                return
+
+            hexdump = Syntax(
+                data.hex(), "ecl", line_numbers=True, background_color="#1e1e1e"
+            )
+
+            inspector.clear()
+            inspector.write(hexdump)
+
+        self.push_screen(ExaminePrompt(), examine)
+
+    def action_clean_quit(self) -> None:
+        if self.process:
+            self.process.Destroy()
+        self.app.exit()
+
+    # manages assembly view and regs view
+    def disas(self) -> None:
+        # update regs and session info, too
+        self.regs()
+        self.update_session_info()
+
+        if not self.mounted or not self.process or not self.thread:
             return
 
         state = self.process.GetState()
-        if state == lldb.eStateStopped:
-            thread = self.process.GetThreadAtIndex(0)
-            thread.StepInstruction(step_over)
-            log(thread)
+        richlog = self.query_one("#asm", RichLog)
+        if state == lldb.eStateExited:
+            richlog.clear()
+            richlog.write("process exited!")
+            return
+        if state != lldb.eStateStopped:
+            return
+
+        frame: lldb.SBFrame = self.thread.GetSelectedFrame()
+        if not frame:
+            return
+
+        disas = frame.Disassemble()
+
+        # peel off extra characters
+        disas = self.regex.sub("", disas)
+
+        # prettify
+        asm = Syntax(disas, "ecl", line_numbers=True, background_color="#1e1e1e")
+
+        # write to the screen
+        richlog.clear()
+        richlog.write(asm)
+
+    def regs(self) -> None:
+        if (
+            not self.mounted
+            or not self.process
+            or self.process.GetState() != lldb.eStateStopped
+            or not self.thread
+        ):
+            return
+
+        frame: lldb.SBFrame = self.thread.GetSelectedFrame()
+        if not frame:
+            return
+        log64 = self.query_one("#regs64", RichLog)
+        log32 = self.query_one("#regs32", RichLog)
+        log16 = self.query_one("#regs16", RichLog)
+        log8 = self.query_one("#regs8", RichLog)
+        log64.clear()
+        log32.clear()
+        log16.clear()
+        log8.clear()
+
+        regs = frame.GetRegisters()
+        gprs = []
+        for reg in regs:
+            if "general purpose registers" in reg.name.lower():
+                gprs = reg
+                break
+        for reg in gprs:
+            if len(reg.value) == 4:
+                richlog = log8
+            elif len(reg.value) == 6:
+                richlog = log16
+            elif len(reg.value) == 10:
+                richlog = log32
+            elif len(reg.value) == 18:
+                richlog = log64
+            else:
+                richlog = log8
+
+            if (
+                reg.name in self.previous_regs
+                and reg.value != self.previous_regs[reg.name]
+            ):
+                richlog.write(f"[magenta]%[/]{reg.name: <6}: [blue b r]{reg.value}[/]")
+            else:
+                richlog.write(f"[magenta]%[/]{reg.name: <6}: [blue]{reg.value}[/]")
+            self.previous_regs[reg.name] = reg.value
+
+    def update_session_info(self) -> None:
+        self.query_one(SessionInfo).update(self.target, self.process, self.thread)
 
     def error(self, message: str) -> None:
         """Display an error message."""
         self.push_screen(ErrorScreen(message))
 
-class SessionInfo(Widget):
-    """Display current target and process information at the bottom."""
-
-    dbg: reactive[lldb.SBDebugger] = reactive(lldb.SBDebugger.Create())
-    filename: reactive[str] = reactive("")
-    target: reactive[lldb.SBTarget] = reactive(lldb.SBTarget())
-    process: reactive[lldb.SBProcess] = reactive(lldb.SBProcess())
-    mounted: bool = False
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("", id="target", classes="session-item"),
-            Label("", id="process", classes="session-item"),
-            id="session-info"
-        )
-
-    def on_mount(self) -> None:
-        self.mounted = True
-
-    def watch_target(self, target: lldb.SBTarget) -> None:
-        if not self.mounted:
-            return
-        if target:
-            message = f"target: {target}"
-        else:
-            message = "no target selected"
-        self.query_one("#target", Label).update(message)
-
-    def watch_process(self, process: lldb.SBProcess) -> None:
-        if not self.mounted:
-            return
-        if process:
-            message = f"process: {process}"
-        else:
-            message = "no process running"
-        self.query_one("#process", Label).update(message)
-
-class TargetPrompt(ModalScreen[str]):
-    """Prompt for setting the target."""
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("input the target executable", id="t-label"),
-            Input("", placeholder="name of target executable", id="t-path"),
-            id="t-grid")
-
-    @on(Input.Submitted)
-    def set_target(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
-
-class BreakpointPrompt(ModalScreen[str]):
-    """Prompt for setting the breakpoint."""
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("input the name of the symbol to break at", id="b-label"),
-            Input("", placeholder="name of symbol to break at", id="b-path"),
-            id="b-grid")
-
-    @on(Input.Submitted)
-    def set_breakpoint(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
-
-class ErrorScreen(ModalScreen[str]):
-    """Display an error message."""
-
-    message: str = "there was an error!"
-
-    def __init__(self, message: str) -> None:
-        super().__init__()
-        self.message = message
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("action failed:", id="error-label"),
-            Label(self.message),
-            id="error-message")
-
-    @on(Key)
-    def begone(self) -> None:
-        self.dismiss()
 
 if __name__ == "__main__":
-    OurDebugger().run()
+    AmericanBunnyHop().run()

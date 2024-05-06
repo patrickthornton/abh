@@ -3,9 +3,11 @@
 import lldb
 import os
 
+
 def disassemble_instructions(insts):
     for i in insts:
         print(i)
+
 
 # Set the path to the executable to debug
 exe = "test/hello"
@@ -15,7 +17,7 @@ debugger = lldb.SBDebugger.Create()
 
 # When we step or continue, don't return from the function until the process
 # stops. Otherwise we would have to handle the process events ourselves which, while doable is
-#a little tricky.  We do this by setting the async mode to false.
+# a little tricky.  We do this by setting the async mode to false.
 debugger.SetAsync(False)
 
 # Create a target from a file and arch
@@ -25,8 +27,9 @@ target = debugger.CreateTarget(exe)
 
 if target:
     # If the target is valid set a breakpoint at main
-    main_bp = target.BreakpointCreateByName("main", target.GetExecutable().GetFilename());
-
+    main_bp = target.BreakpointCreateByName(
+        "main", target.GetExecutable().GetFilename()
+    )
     print(main_bp)
 
     # Launch the process. Since we specified synchronous mode, we won't return
@@ -59,39 +62,42 @@ if target:
                         disassemble_instructions(insts)
                     else:
                         # See if we have a symbol in the symbol table for where we stopped
-                        symbol = frame.GetSymbol();
+                        symbol = frame.GetSymbol()
                         if symbol:
                             # We do have a symbol, print some info for the symbol
                             print(symbol)
                             insts = symbol.GetInstructions(target)
                             disassemble_instructions(insts)
 
-#kyra trying to figure stuff out :(
+# kyra trying to figure stuff out :(
 
 res = lldb.SBCommandReturnObject()
 ci = debugger.GetCommandInterpreter()
+
+
 def __lldb_init_module(debugger, internal_dict):
     ci.HandleCommand("command script add -f lldbinit.cmd_xt newcmd", res)
 
-#https://nusgreyhats.org/posts/writeups/basic-lldb-scripting/
-#to print unicode strings from memory (similar to x/s but printing unicode strings)
+
+# https://nusgreyhats.org/posts/writeups/basic-lldb-scripting/
+# to print unicode strings from memory (similar to x/s but printing unicode strings)
 def cmd_xt(debugger, command, result, _dict):
-    args = command.split(' ')
+    args = command.split(" ")
     if len(args) < 1:
-        print('xt <expression>')
+        print("xt <expression>")
         return
 
     addr = int(thread.GetFrameAtIndex(0).EvaluateExpression(args[0]).GetValue(), 10)
     error = lldb.SBError()
 
     ended = False
-    s = u''
+    s = ""
     offset = 0
 
     while not ended:
         mem = target.GetProcess().ReadMemory(addr + offset, 100, error)
         for i in range(0, 100, 2):
-            wc = mem[i+1] << 8 | mem[i]
+            wc = mem[i + 1] << 8 | mem[i]
             s += chr(wc)
             if wc == 0:
                 ended = True

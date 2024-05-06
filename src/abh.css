@@ -1,13 +1,59 @@
+#body {
+    background: $background;
+    grid-size: 1 4;
+    grid-rows: 1fr 2fr 2fr 8fr;
+}
+
 ModalScreen {
     align: center middle;
 }
 
-Grid {
+#asm {
+    border: thick $background 80%;
+}
+
+#inspector {
+    width: 100%;
+    height: 100%;
+    border: thick $background 80%;
+    background: $surface;
+}
+
+#regs {
+    width: 100%;
+    height: 100%;
+    border: thick $background 80%;
+    background: $surface;
+    grid-size: 4 1;
+    grid-columns: 7fr 6fr 5fr 4fr;
+    grid-gutter: 1;
+}
+
+.scroller {
+    scrollbar-size: 1 1;
+    scrollbar-color: rgb(148, 107, 246);
+}
+
+.modal {
     align: center middle;
     width: 60%;
     height: 10%;
     border: thick $background 80%;
     background: $surface;
+}
+
+.big-modal {
+    align: center middle;
+    width: 60%;
+    height: 60%;
+    border: thick $background 80%;
+    background: $surface;
+    grid-size: 1 4;
+    grid-rows: 1fr 8fr 1fr 2fr;
+}
+
+#bs {
+    text-align: center;
 }
 
 Label {
@@ -17,17 +63,20 @@ Label {
 }
 
 #session-info {
-    width: 100%;
-    grid-size: 2 1;
+    grid-size: 3 1;
     grid-rows: 1fr;
     grid-columns: 1fr;
     grid-gutter: 1;
+    padding-left: 1;
+    padding-right: 1;
+    border: thick $background 80%;
+    background: $surface;
 }
 
 .session-item {
-    background: #333;
+    background: $surface-lighten-1;
 }
 
 #error-message {
-    background: #522;
+    background: $error;
 }
