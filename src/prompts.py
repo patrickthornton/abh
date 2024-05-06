@@ -60,13 +60,13 @@ class BreakpointPrompt(Prompt):
         bs.clear()
 
         for bp in self.breakpoints:
-            bp = str(bp).replace("SBBreakpoint: ", "")
-            bp_parts = bp.split(", ")
-            id = bp_parts[0].split(" ")[2]
+            bp_str = str(bp).replace("SBBreakpoint: ", "")
+            bp_parts = bp_str.split(", ")
+            id = bp.id
             name = bp_parts[1].split(" ")[2]
-            locations = bp_parts[3].split(" ")[2]
+            locations = bp.num_locations
             bs.write(
-                f"[b cyan]{id}[/]: name = [green]{name}[/], locations = [b magenta]{locations}[/]"
+                f" [b cyan]{id}[/]: name = [green]{name}[/], locations = [b magenta]{locations}[/]"
             )
 
 

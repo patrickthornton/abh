@@ -80,3 +80,7 @@ Label {
 #error-message {
     background: $error;
 }
+
+#warning-message {
+    background: $warning-darken-3;
+}

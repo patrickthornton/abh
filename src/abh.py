@@ -23,7 +23,7 @@ import re
 
 from sessioninfo import SessionInfo
 from prompts import TargetPrompt, BreakpointPrompt, ExaminePrompt
-from error import ErrorScreen
+from notifs import ErrorNotif, SymbolNotif, WarningMotif
 
 
 class AmericanBunnyHop(App):
@@ -32,11 +32,12 @@ class AmericanBunnyHop(App):
     CSS_PATH = "abh.css"
     BINDINGS = [
         ("t", "target", "target"),
+        ("s", "symbols", "symbols"),
         ("b", "breakpoint", "breakpoint"),
         ("r", "run", "run"),
         ("c", "continue", "continue"),
-        ("s", "step", "step"),
-        ("n", "next", "next"),
+        ("o", "step", "step over"),
+        ("i", "next", "step into"),
         ("x", "examine", "examine"),
         ("q", "clean_quit", "quit"),
     ]
@@ -98,6 +99,11 @@ class AmericanBunnyHop(App):
         self.dbg.SetAsync(False)
         self.mounted = True
 
+        # SCRAP THESE LINES LATER
+        target = self.dbg.CreateTarget("test/hello")
+        self.target = target
+        self.filename = target.GetExecutable().GetFilename()
+
     def action_target(self) -> None:
         """Set the target."""
 
@@ -116,8 +122,32 @@ class AmericanBunnyHop(App):
 
         self.push_screen(TargetPrompt(), set_target)
 
+    def action_symbols(self) -> None:
+        """List symbols in the target."""
+
+        if not self.target:
+            self.error("no target set!")
+            return
+
+        symbols = []
+        for module in self.target.module_iter():
+            if self.filename not in str(module):
+                continue
+            for symbol in module:
+                if "mangled" in str(symbol):
+                    continue
+                symbols.append(str(symbol))
+
+        self.push_screen(SymbolNotif(symbols))
+
     def action_breakpoint(self) -> None:
         """Set a breakpoint."""
+
+        breakpoints = list(self.target.breakpoint_iter())
+        breakpoint_names = [
+            str(breakpoint).split(", ")[1].split(" = ")[1][1:-1]
+            for breakpoint in breakpoints
+        ]
 
         def set_breakpoint(path: str) -> None:
             # handle escape
@@ -128,13 +158,23 @@ class AmericanBunnyHop(App):
                 self.error("no target set!")
                 return
 
+            # check for duplicates
+            log(breakpoint_names)
+            if path in breakpoint_names:
+                self.error("breakpoint already set!")
+                return
+
             breakpoint = self.target.BreakpointCreateByName(path, self.filename)
             log(breakpoint)
             if not breakpoint:
                 self.error("couldn't set breakpoint!")
                 return
 
-        breakpoints = list(self.target.breakpoint_iter())
+            # warn if 0 locations
+            if breakpoint.GetNumLocations() == 0:
+                self.warn("no locations found for breakpoint")
+                return
+
         self.push_screen(BreakpointPrompt(breakpoints), set_breakpoint)
 
     def action_run(self) -> None:
@@ -239,7 +279,7 @@ class AmericanBunnyHop(App):
         richlog = self.query_one("#asm", RichLog)
         if state == lldb.eStateExited:
             richlog.clear()
-            richlog.write("process exited!")
+            richlog.write(" process exited!")
             return
         if state != lldb.eStateStopped:
             return
@@ -313,7 +353,11 @@ class AmericanBunnyHop(App):
 
     def error(self, message: str) -> None:
         """Display an error message."""
-        self.push_screen(ErrorScreen(message))
+        self.push_screen(ErrorNotif(message))
+
+    def warn(self, message: str) -> None:
+        """Display a warning message."""
+        self.push_screen(WarningMotif(message))
 
 
 if __name__ == "__main__":
