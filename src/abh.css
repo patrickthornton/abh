@@ -1,7 +1,7 @@
 #body {
     background: $background;
     grid-size: 1 4;
-    grid-rows: 1fr 2fr 2.5fr 8fr;
+    grid-rows: 1fr 2.5fr 2.5fr 8fr;
 }
 
 ModalScreen {
@@ -36,16 +36,16 @@ ModalScreen {
 
 .modal {
     align: center middle;
-    width: 60%;
-    height: 10%;
+    width: 60;
+    height: 10;
     border: thick $background 80%;
     background: $surface;
 }
 
 .big-modal {
     align: center middle;
-    width: 60%;
-    height: 60%;
+    width: 80;
+    height: 35;
     border: thick $background 80%;
     background: $surface;
     grid-size: 1 4;
